@@ -269,7 +269,7 @@ internal class DenyListedApiDetector : Detector(), SourceCodeScanner, XmlScanner
                                         .text(),
                                     fieldName = element.getElementsByTagName("FieldName")
                                         .text(),
-                                    parameters = lastChildValue(element.getElementsByTagName("Parameters")),
+                                    parameters = lastChildValue(element.getElementsByTagName("Parameter")),
                                     arguments = lastChildValue(element.getElementsByTagName("Arguments")),
                                     errorMessage = element.getElementsByTagName("ErrorMessage")
                                         .text()!!,

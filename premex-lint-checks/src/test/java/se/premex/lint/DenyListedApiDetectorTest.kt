@@ -142,6 +142,13 @@ class DenyListedApiDetectorTest : LintDetectorTest() {
                     <Arguments>*</Arguments>
                     <ErrorMessage>rxObservable defaults to Dispatchers.Default, which will silently introduce multithreading. Provide an explicit dispatcher. Dispatchers.Unconfined is usually the best choice, as it behaves in an rx-y way.</ErrorMessage>
                 </Blocked>
+                <Blocked>
+                    <ClassName>io.reactivex.Observable</ClassName>
+                    <FunctionName>subscribe</FunctionName>
+                    <Parameter><![CDATA[io.reactivex.functions.Consumer<T>]]></Parameter>
+                    <Arguments>*</Arguments>
+                    <ErrorMessage>Deal with errors</ErrorMessage>
+                </Blocked>
             </BlockList>
         """.trimIndent()
     )
@@ -157,6 +164,141 @@ class DenyListedApiDetectorTest : LintDetectorTest() {
     override fun getIssues() = listOf(DenyListedApiDetector.ISSUE)
 
     override fun getDetector(): Detector = DenyListedApiDetector()
+
+    private val RX_CONSUMER_STUBS =
+        java(
+            """
+        package io.reactivex.functions;
+
+        public interface Consumer<T> {
+            void accept(T t) throws Exception;
+        }
+      """
+        )
+            .indented()
+
+    private val RX_CONSUMER_IMPL_STUBS =
+        java(
+            """
+        package io.reactivex.functions;
+        
+        import io.reactivex.functions.Consumer;
+
+        public class ConsumerImpl<T> extends Consumer<T> {
+            void accept(T t) throws Exception {
+            }
+        }
+      """
+        )
+            .indented()
+
+    private val RX_OBSERVABLE_STUBS =
+        java(
+            """
+        package io.reactivex;
+
+        public class Observable<T> {
+            public final void subscribe() {}
+            
+            public final void subscribe(Consumer<T> foo) {}
+
+            public final void subscribe(Consumer<T> foo, String bar) {}
+        }
+      """
+        )
+            .indented()
+
+    @Test
+    fun `allow rx with error`() {
+        lint()
+            .files(
+                RX_OBSERVABLE_STUBS,
+                RX_CONSUMER_STUBS,
+                RX_CONSUMER_IMPL_STUBS,
+                xmlconfig,
+                kotlin(
+                    """
+          package foo
+
+          import io.reactivex.Observable
+          import io.reactivex.functions.ConsumerImpl
+
+          class SomeView {
+            init {
+                val consumer = ConsumerImpl<String>()
+                Observable<String>().subscribe(consumer, "jkl")
+            }
+          }
+          """
+                )
+                    .indented()
+            )
+            .run()
+            .expectClean()
+    }
+
+    @Test
+    fun `allow rx with errora sdf`() {
+        lint()
+            .files(
+                RX_OBSERVABLE_STUBS,
+                RX_CONSUMER_STUBS,
+                xmlconfig,
+                kotlin(
+                    """
+          package foo
+
+          import io.reactivex.Observable
+
+          class SomeView {
+            init {
+              Observable<String>().subscribe()
+            }
+          }
+          """
+                )
+                    .indented()
+            )
+            .run()
+            .expectClean()
+    }
+
+    @Test
+    fun `deny rx without error`() {
+        lint()
+            .files(
+                RX_OBSERVABLE_STUBS,
+                RX_CONSUMER_STUBS,
+                RX_CONSUMER_IMPL_STUBS,
+                xmlconfig,
+                kotlin(
+                    """
+          package foo
+
+          import io.reactivex.Observable
+          import io.reactivex.functions.ConsumerImpl
+
+          class SomeView {
+            init {
+                val consumer = ConsumerImpl<String>()
+              Observable<String>().subscribe(consumer)
+            }
+          }
+          """
+                )
+                    .indented()
+            )
+            .run()
+            .expect(
+                """
+        src/foo/SomeView.kt:9: Error: Deal with errors [BlockListedApi]
+    Observable<String>().subscribe(consumer)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+1 errors, 0 warnings
+        """
+                    .trimIndent()
+            )
+    }
 
     @Test
     fun `flag function with params in deny list`() {
